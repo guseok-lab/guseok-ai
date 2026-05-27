@@ -36,6 +36,11 @@ app = FastAPI(title="GUSEOK AI 분석 서버")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")   # ⚠️ 환경변수로 주입 (코드에 하드코딩 금지)
 WORK_DIR = "./work"   # 다운로드한 영상/사진 임시 저장
 
+# 드론 서버(영상 스트림 소스). 백엔드가 full streamUrl 을 주지 않고 droneId 만 줄 때
+# 여기에 /video/{drone_id} 를 붙여 스트림 URL 을 조립한다.
+# 형태: http://168.107.63.33:5001/video/{drone_id}
+DRONE_SERVER_URL = os.environ.get("DRONE_SERVER_URL", "http://168.107.63.33:5001").rstrip("/")
+
 
 @app.on_event("startup")
 def _startup():
@@ -58,6 +63,26 @@ def analyze(req: AnalyzeRequest):
     """백엔드가 호출. 분석은 백그라운드로 돌리고 즉시 접수 응답."""
     threading.Thread(target=_run_job, args=(req.searchId,), daemon=True).start()
     return {"success": True, "data": {"searchId": req.searchId, "status": "ACCEPTED"}}
+
+
+def _resolve_stream_url(detail):
+    """
+    LIVE(드론) 스트림 URL 결정.
+      1) 백엔드가 full streamUrl 을 주면 그대로 사용
+      2) droneId 만 주면 드론서버 URL(/video/{drone_id}) 로 조립
+    필드명을 백엔드가 어떻게 줄지 아직 불확실하므로 흔한 후보들을 모두 시도한다.
+    """
+    # 1) full URL 후보
+    for key in ("streamUrl", "stream_url", "videoUrl", "video_url"):
+        url = detail.get(key)
+        if url and str(url).startswith("http"):
+            return url
+    # 2) droneId 후보 -> 드론서버 URL 조립
+    for key in ("droneId", "drone_id", "droneld", "id"):
+        drone_id = detail.get(key)
+        if drone_id is not None and str(drone_id) != "":
+            return f"{DRONE_SERVER_URL}/video/{drone_id}"
+    return None
 
 
 def _run_job(search_id):
@@ -85,22 +110,22 @@ def _run_job(search_id):
             return
 
         # 3) 영상 소스 결정
+        #    LIVE : 드론 스트림 (full streamUrl 또는 droneId 로 조립)
         #    VIDEO: 업로드된 영상 URL 을 받아 다운로드해서 분석
-        #    LIVE : 드론 스트림 URL 을 직접 분석
-        #    ⚠️ 영상/스트림 URL 을 detail 의 어느 필드에서 받는지는 배포 후 백엔드와 확정 필요.
-        #       (예: detail["videoUrl"], detail["streamUrl"])
+        is_drone = True   # 영상 소스가 드론 기준 (정면 CCTV 연동 시 detail 로 판단하도록 추후 확장)
         if search_mode == "LIVE":
-            video_source = detail.get("streamUrl")
-            is_drone = True
+            video_source = _resolve_stream_url(detail)
+            if video_source:
+                print(f"[작업] LIVE 스트림 소스: {video_source}")
         else:
             video_url = detail.get("videoUrl")
             video_source = download_file(video_url, os.path.join(WORK_DIR, f"video_{search_id}.mp4")) \
                 if video_url else None
-            is_drone = True   # ⚠️ 영상이 드론/정면인지 판단 기준 확정 필요 (지금은 드론 가정)
 
         if not video_source:
-            print(f"[작업] 영상 소스를 찾지 못함 (search_id={search_id})")
-            send_callback_report(search_id, [], status="FAILED")
+            print(f"[작업] 영상 소스를 찾지 못함 (search_id={search_id}, mode={search_mode}, detail keys={list(detail.keys())})")
+            send_callback_report(search_id, [], status="FAILED",
+                                 error_message="영상/스트림 소스를 찾지 못했습니다.")
             return
 
         # 4) 기준 사진 다운로드 (있으면 Re-ID 작동)
