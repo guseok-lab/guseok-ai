@@ -342,21 +342,59 @@ def download_file(url, save_path):
 
 def upload_result_image(local_path, search_id):
     """
-    결과 스냅샷을 OCI Object Storage 에 업로드하고 공개 URL 을 반환.
-
-    ⚠️ 배포 후 백엔드 담당자와 방식을 정한 뒤 구현해야 함.
-       방법 A) AI 서버가 OCI SDK 로 직접 업로드 (OCI 인증 설정 필요)
-       방법 B) 백엔드가 발급한 presigned PUT URL 로 업로드 (백엔드에 URL 요청 API 필요)
-
-    지금은 자리만 만들어 둔다. 구현 전까지는 로컬 경로를 그대로 반환한다.
+    결과 스냅샷을 백엔드 presigned URL 방식으로 업로드하고,
+    콜백에 넣을 공개 URL(resultImageUrl)을 반환한다.
+ 
+    흐름 (백엔드 협의 결과):
+      1) GET /api/files/result-upload-url?searchId=&filename=
+         -> { objectKey, uploadUrl(PUT용 10분 유효), resultImageUrl(콜백용) }
+      2) uploadUrl 로 이미지 PUT 업로드
+      3) resultImageUrl 반환 (app.py 가 matchedImageUrl 에 넣음)
+ 
+    실패 시 None 반환 (호출부에서 빈 문자열 처리).
     """
-    # TODO: OCI 업로드 구현 (배포 후 백엔드와 협의)
-    # 예시(방법 B):
-    #   1) GET 백엔드에서 presigned PUT URL 받기
-    #   2) requests.put(presigned_url, data=open(local_path,'rb'))
-    #   3) 공개 URL(objectKey 기반) 반환
-    print(f"[OCI] (미구현) 결과 이미지 업로드 자리: {local_path}")
-    return local_path
+    if not local_path or not os.path.exists(local_path):
+        print(f"[OCI] 업로드할 파일이 없음: {local_path}")
+        return None
+ 
+    filename = os.path.basename(local_path)
+ 
+    # 1) presigned URL 발급 요청
+    issue_url = f"{SPRING_SERVER_URL}/api/files/result-upload-url"
+    try:
+        r = requests.get(
+            issue_url,
+            params={"searchId": int(search_id), "filename": filename},
+            timeout=10,
+        )
+        r.raise_for_status()
+        info = r.json()
+        # 응답이 {"data": {...}} 로 감싸여 올 수도 있어 양쪽 다 대응
+        if "uploadUrl" not in info and isinstance(info.get("data"), dict):
+            info = info["data"]
+        upload_url       = info["uploadUrl"]
+        result_image_url = info["resultImageUrl"]
+    except Exception as e:
+        print(f"[OCI] presigned URL 발급 실패: {e}")
+        return None
+ 
+    # 2) uploadUrl 로 PUT 업로드
+    try:
+        with open(local_path, "rb") as f:
+            put_resp = requests.put(
+                upload_url,
+                data=f,
+                headers={"Content-Type": "image/jpeg"},
+                timeout=30,
+            )
+        put_resp.raise_for_status()
+    except Exception as e:
+        print(f"[OCI] 이미지 PUT 업로드 실패: {e}")
+        return None
+ 
+    print(f"[OCI] 업로드 성공: {filename} -> {result_image_url}")
+    # 3) 콜백에 쓸 공개 URL 반환
+    return result_image_url
 
 
 def extract_attributes_from_query_photo(photo_path, api_key=None):
