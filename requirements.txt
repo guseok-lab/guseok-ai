@@ -1,0 +1,14 @@
+# GUSEOK AI 분석 서버 - pip 설치 가능 패키지
+# (torchreid 는 GitHub 소스 빌드 -> install_reid.sh 참고)
+fastapi
+uvicorn
+ultralytics
+torch
+torchvision
+opencv-python
+scipy
+pillow
+requests
+google-genai
+tensorboard
+cython

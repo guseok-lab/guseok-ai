@@ -1,0 +1,15 @@
+# custom_tracker.yaml
+# 드론 영상 ID 안정화용 ByteTrack 설정.
+# 기본값 대비: track_buffer 를 크게 늘려 잠깐 가려져도 같은 ID 유지,
+# 매칭 임계값을 낮춰(느슨하게) 끊긴 트랙을 재연결하기 쉽게 함.
+
+tracker_type: bytetrack   # bytetrack 사용
+
+track_high_thresh: 0.25   # 1차 매칭에 쓰는 높은 신뢰도 임계값 (기본 0.25)
+track_low_thresh: 0.10    # 2차 매칭에 쓰는 낮은 신뢰도 임계값 (기본 0.1)
+new_track_thresh: 0.60    # 새 트랙 생성 임계값 (기본 0.25 -> 높이면 새 ID 남발 억제)
+track_buffer: 120         # 끊긴 트랙을 유지하는 프레임 수 (기본 30 -> 4배로 늘림)
+match_thresh: 0.90        # 매칭 IoU 임계값 (기본 0.8 -> 높여서 재연결 쉽게)
+fuse_score: True          # 신뢰도와 IoU를 결합해 매칭 안정화
+
+# gmc_method: sparseOptFlow   # botsort 전용 (bytetrack 에선 무시됨)
