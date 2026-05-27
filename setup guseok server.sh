@@ -24,8 +24,8 @@ APP_PORT="8000"                                        # FastAPI(uvicorn) 포트
 APP_MODULE="app:app"                                   # app.py 안의 FastAPI 인스턴스명
 
 # 환경변수 (백엔드/LLM) — 실제 값으로 채우세요
-SPRING_SERVER_URL="http://BACKEND_HOST:8080"           # ← Spring 백엔드 주소
-GOOGLE_API_KEY="YOUR_GEMINI_API_KEY"                   # ← Gemini 폴백용 키 (없으면 비워둬도 됨)
+SPRING_SERVER_URL="http://168.107.63.84:8080"           # ← Spring 백엔드 주소
+GOOGLE_API_KEY="AIzaSyBFhv4GHDEvRAhTKNGU8Zz0T8eGASKHofE"                   # ← Gemini 폴백용 키 (없으면 비워둬도 됨)
 
 # ─────────────────────────────────────────────────────────────────────────────
 C_G='\033[1;32m'; C_Y='\033[1;33m'; C_R='\033[1;31m'; C_0='\033[0m'
