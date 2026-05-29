@@ -57,7 +57,7 @@ MERGED_REMOVE_RATIO = 0.5
 MERGED_MIN_OBSERVE  = 4
 
 # B' 실시간 스트림용 최대 분석 시간 (초). 30분.
-MAX_DURATION_SECONDS = 30 * 60
+MAX_DURATION_SECONDS = 60
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
