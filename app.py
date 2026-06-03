@@ -112,13 +112,21 @@ def _run_job(search_id):
         # 3) 영상 소스 결정
         #    LIVE : 드론 스트림 (full streamUrl 또는 droneId 로 조립)
         #    VIDEO: 업로드된 영상 URL 을 받아 다운로드해서 분석
-        is_drone = True   # 영상 소스가 드론 기준 (정면 CCTV 연동 시 detail 로 판단하도록 추후 확장)
+        # 영상 타입 판단 — 백엔드가 cameraView 또는 isDrone 필드로 알려줌, 없으면 기본 드론뷰
+        camera_view = (detail.get("cameraView") or "").upper()
+        if camera_view:
+            is_drone = camera_view in ("TOP", "DRONE", "AERIAL")
+        elif "isDrone" in detail:
+            is_drone = bool(detail.get("isDrone"))
+        else:
+            is_drone = None   # 필드 없으면 영상 받고 자동 판별
         if search_mode == "LIVE":
             video_source = _resolve_stream_url(detail)
             if video_source:
                 print(f"[작업] LIVE 스트림 소스: {video_source}")
         else:
-            video_url = detail.get("videoUrl")
+            video_urls = detail.get("videoUrls") or ([detail["videoUrl"]] if detail.get("videoUrl") else [])
+            video_url = video_urls[0] if video_urls else None
             video_source = download_file(video_url, os.path.join(WORK_DIR, f"video_{search_id}.mp4")) \
                 if video_url else None
 
@@ -127,6 +135,19 @@ def _run_job(search_id):
             send_callback_report(search_id, [], status="FAILED",
                                  error_message="영상/스트림 소스를 찾지 못했습니다.")
             return
+
+        # 3-b) 시점 자동 판별 (cameraView/isDrone 안 왔을 때만)
+        if is_drone is None:
+            if search_mode == "LIVE":
+                is_drone = True   # 드론 스트림
+            else:
+                _view = analyzer.classify_view(video_source)
+                if _view is None:
+                    is_drone = True
+                    print(f"[시점] 자동 판별 실패 -> 기본 드론뷰 (search_id={search_id})")
+                else:
+                    is_drone = (_view == "top")
+                    print(f"[시점] 자동 판별: {_view} -> is_drone={is_drone} (search_id={search_id})")
 
         # 4) 기준 사진 다운로드 (있으면 Re-ID 작동)
         query_photo_path = None
