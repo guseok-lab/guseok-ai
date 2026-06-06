@@ -78,10 +78,26 @@ def _resolve_stream_url(detail):
         if url and str(url).startswith("http"):
             return url
     # 2) droneId 후보 -> 드론서버 URL 조립
-    for key in ("droneId", "drone_id", "droneld", "id"):
+    for key in ("droneId", "drone_id", "droneld"):  # "id"는 searchId 오인 위험으로 제외
         drone_id = detail.get(key)
         if drone_id is not None and str(drone_id) != "":
             return f"{DRONE_SERVER_URL}/video/{drone_id}"
+    # 3) [fallback] 드론서버에서 활성 드론 자동 발견 (드론 1대 데모 전제)
+    try:
+        if (detail.get("searchMode") or "").upper() in ("LIVE", "DRONE"):
+            import requests as _rq
+            _ds = _rq.get(f"{DRONE_SERVER_URL}/drones", timeout=5).json()
+            if isinstance(_ds, dict):
+                _ds = _ds.get("drones") or _ds.get("data") or []
+            if _ds:
+                _d0 = _ds[0]
+                _did = _d0 if not isinstance(_d0, dict) else (_d0.get("droneId") or _d0.get("drone_id") or _d0.get("id"))
+                if _did is not None and str(_did) != "":
+                    print(f"[작업] droneId 미제공 -> 드론서버 자동 발견: {_did}")
+                    return f"{DRONE_SERVER_URL}/video/{_did}"
+            print("[작업] 드론서버에 활성 드론 없음 -> 스트림 결정 실패")
+    except Exception as _de:
+        print(f"[작업] 드론 자동 발견 실패: {_de}")
     return None
 
 
@@ -120,7 +136,7 @@ def _run_job(search_id):
             is_drone = bool(detail.get("isDrone"))
         else:
             is_drone = None   # 필드 없으면 영상 받고 자동 판별
-        if search_mode == "LIVE":
+        if search_mode in ("LIVE", "DRONE"):
             video_source = _resolve_stream_url(detail)
             if video_source:
                 print(f"[작업] LIVE 스트림 소스: {video_source}")
@@ -138,7 +154,7 @@ def _run_job(search_id):
 
         # 3-b) 시점 자동 판별 (cameraView/isDrone 안 왔을 때만)
         if is_drone is None:
-            if search_mode == "LIVE":
+            if search_mode in ("LIVE", "DRONE"):
                 is_drone = True   # 드론 스트림
             else:
                 _view = analyzer.classify_view(video_source)
@@ -154,6 +170,19 @@ def _run_job(search_id):
         if target_img_url:
             query_photo_path = download_file(
                 target_img_url, os.path.join(WORK_DIR, f"target_{search_id}.jpg"))
+            # HEIC 등 cv2가 못 읽는 포맷 -> JPG 변환
+            if query_photo_path:
+                import cv2 as _cv2
+                if _cv2.imread(query_photo_path) is None:
+                    try:
+                        from pillow_heif import register_heif_opener
+                        register_heif_opener()
+                        from PIL import Image as _PILImage
+                        _PILImage.open(query_photo_path).convert("RGB").save(query_photo_path, "JPEG", quality=95)
+                        print("[작업] 기준사진 HEIC -> JPG 변환 완료")
+                    except Exception as _ce:
+                        print(f"[작업] 기준사진 읽기 불가 -> 사진 없이 진행: {_ce}")
+                        query_photo_path = None
 
         # 5) 분석 실행
         print(f"[작업] 분석 시작 (search_id={search_id}, mode={search_mode}, mission={mission_data})")

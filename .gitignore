@@ -1,0 +1,10 @@
+.env
+__pycache__/
+*.pyc
+*.bak
+work/
+results/
+view*/
+diag/
+*.mp4
+models/*.pth

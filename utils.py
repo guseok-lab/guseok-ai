@@ -117,7 +117,12 @@ def _find_color_near(text, anchors):
     for a in anchors:
         idx = text.find(a)
         while idx != -1:
-            window = text[max(0, idx - 12):idx + len(a)]
+            seg = text[max(0, idx - 12):idx]
+            for _sep in (",", ".", "/", ":"):
+                _cut = seg.rfind(_sep)
+                if _cut != -1:
+                    seg = seg[_cut + 1:]
+            window = seg + text[idx:idx + len(a)]
             for word, color in sorted(_COLOR_WORDS.items(), key=lambda x: -len(x[0])):
                 if word in window and idx > best_pos:
                     best_color, best_pos = color, idx
@@ -131,6 +136,7 @@ def parse_appearance_rule(text):
     if not text:
         return {}
     t = text.replace(" ", "")
+    t = t.replace("차콜", "검정").replace("챠콜", "검정")  # 색 동의어 정규화
     result = {}
 
     if any(w in t for w in _FEMALE_WORDS):
@@ -144,9 +150,15 @@ def parse_appearance_rule(text):
         result["hair"] = "long"
     elif any(w in t for w in _HAIR_SHORT):
         result["hair"] = "short"
+    if "hair" not in result and "단발" in t:
+        result["hair"] = "short"
 
     up_color   = _find_color_near(t, _UPPER_WORDS)
     down_color = _find_color_near(t, _LOWER_WORDS)
+
+    # 청바지=데님: 같은 절에 명시 색 없으면 blue
+    if "청바지" in t and not down_color:
+        down_color = "blue"
 
     if "상하의" in t:
         c = _find_color_near(t, ["상하의"]) or _nearest_color(t)
@@ -455,6 +467,16 @@ def load_reid_model(device):
         loss='softmax',
         pretrained=True
     )
+    # Re-ID 전용 학습 가중치(MSMT17+Duke+CUHK)로 교체 — 파일 없으면 imagenet 유지
+    _w = "/workspace/guseok/models/osnet_reid.pth"
+    if os.path.exists(_w):
+        _ck = torch.load(_w, map_location="cpu", weights_only=False)  # torchreid 공식 zoo 파일
+        _sd = _ck.get("state_dict", _ck) if isinstance(_ck, dict) else _ck
+        _sd = {(k[7:] if k.startswith("module.") else k): v for k, v in _sd.items()}
+        _msd = model.state_dict()
+        _sd = {k: v for k, v in _sd.items() if k in _msd and _msd[k].shape == v.shape}
+        model.load_state_dict(_sd, strict=False)
+        print(f"[Re-ID] Re-ID 학습 가중치 적용: {len(_sd)}개 레이어")
     model.eval().to(device)
     print("OSNet 로드 완료.")
     return model
