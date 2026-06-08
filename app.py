@@ -59,6 +59,7 @@ def health():
 
 
 @app.post("/analyze")
+@app.post("/analyze-stream")  # 드론/라이브 별칭 (백엔드 호환)
 def analyze(req: AnalyzeRequest):
     """백엔드가 호출. 분석은 백그라운드로 돌리고 즉시 접수 응답."""
     threading.Thread(target=_run_job, args=(req.searchId,), daemon=True).start()
@@ -122,7 +123,7 @@ def _run_job(search_id):
             mission_data = get_mission_command(text, api_key=GOOGLE_API_KEY)
         except MissionParseError as e:
             print(f"[작업] 인상착의 해석 실패 (search_id={search_id}): {e}")
-            send_callback_report(search_id, [], status="FAILED", error_message=str(e))
+            send_callback_report(search_id, [], status="FAILED", error_message=str(e), mode=search_mode)
             return
 
         # 3) 영상 소스 결정
@@ -149,7 +150,7 @@ def _run_job(search_id):
         if not video_source:
             print(f"[작업] 영상 소스를 찾지 못함 (search_id={search_id}, mode={search_mode}, detail keys={list(detail.keys())})")
             send_callback_report(search_id, [], status="FAILED",
-                                 error_message="영상/스트림 소스를 찾지 못했습니다.")
+                                 error_message="영상/스트림 소스를 찾지 못했습니다.", mode=search_mode)
             return
 
         # 3-b) 시점 자동 판별 (cameraView/isDrone 안 왔을 때만)
@@ -200,12 +201,12 @@ def _run_job(search_id):
 
         # 7) 콜백 보고
         status = "COMPLETED"
-        send_callback_report(search_id, results, status=status)
+        send_callback_report(search_id, results, status=status, mode=search_mode)
         print(f"[작업] 완료 (search_id={search_id}, 결과 {len(results)}건)")
 
     except Exception as e:
         print(f"[작업] 예외 발생 (search_id={search_id}): {e}")
         try:
-            send_callback_report(search_id, [], status="FAILED", error_message=str(e))
+            send_callback_report(search_id, [], status="FAILED", error_message=str(e), mode=locals().get("search_mode"))
         except Exception:
             pass

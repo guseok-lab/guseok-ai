@@ -300,14 +300,33 @@ def get_search_detail(search_id):
         return None
 
 
-def send_callback_report(search_id, results, status="COMPLETED", error_message=None):
+def send_callback_report(search_id, results, status="COMPLETED", error_message=None, mode=None):
     """
-    POST /api/files/callback - AI 분석 완료/실패 콜백
-    Swagger 스펙:
-      { "searchId": int, "status": "COMPLETED"|"FAILED",
-        "results": [ {resultType, status, accuracy, matchedImageUrl, matchedTimeSeconds} ] }
-    실패 시 error_message 를 함께 보낸다(백엔드가 사유 표시/로깅에 사용).
+    영상: POST /api/files/callback
+    드론/라이브: POST /api/v1/drone-callback/detection (status: FOUND/NOT_FOUND/FAILED)
     """
+    if mode and str(mode).upper() in ("DRONE", "LIVE"):
+        durl = f"{SPRING_SERVER_URL}/api/v1/drone-callback/detection"
+        if status == "FAILED":
+            dstatus, acc, img = "FAILED", 0.0, ""
+        elif results:
+            top = results[0]
+            dstatus = "FOUND"
+            acc = round(float(top.get("accuracy", 0.0)), 4)
+            img = top.get("matchedImageUrl", "")
+        else:
+            dstatus, acc, img = "NOT_FOUND", 0.0, ""
+        dpayload = {"searchId": int(search_id), "status": dstatus,
+                    "accuracy": acc, "matchedImageUrl": img}
+        print(f"\n[백엔드] 드론 탐지 콜백: {durl} (status={dstatus})")
+        try:
+            r = requests.post(durl, json=dpayload, timeout=10)
+            r.raise_for_status()
+            print("[백엔드] 드론 콜백 보고 성공.")
+            return True
+        except Exception as e:
+            print(f"[백엔드] 드론 콜백 보고 실패: {e}")
+            return False
     url = f"{SPRING_SERVER_URL}/api/files/callback"
     print(f"\n[백엔드] 분석 {status} 콜백: {url}")
 
