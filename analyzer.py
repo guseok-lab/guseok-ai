@@ -588,25 +588,28 @@ def _select_target_person(img, mission_data=None):
         if len(crops) == 1:
             print("[기준사진] 인물 1명 -> 크롭 사용")
             return crops[0]
-        md = mission_data or {}
-        upk = f"up{md['up_color']}" if md.get("up_color") else None
-        dnk = f"down{md['down_color']}" if md.get("down_color") else None
-        best_c, best_s = None, -1.0
-        for c in crops:
-            a = predict_attributes(M['fem'], c)
-            s = 0.0
-            if upk: s += a.get(upk, 0)
-            if dnk:
-                s += a.get(dnk, 0)  # 선택 단계: 원색 그대로 (변별력 우선, 데님 보정 미적용)
-            if md.get("hair") in ("long", "tied"):
-                s += max(a.get("hair_long", 0), a.get("hair_tied", 0))
-            elif md.get("hair") == "short":
-                s += a.get("hair_short", 0)
-            s += 1e-7 * (c.shape[0] * c.shape[1])  # 조건 없으면 큰 크롭 선호
+        # 여러 명: 인상착의(텍스트)에 휘둘리지 않게 기하학적으로 선택.
+        #   기준사진의 역할은 "신원(얼굴)" 확인이므로 옷 점수가 아니라
+        #   화면 중앙에 가깝고(주인공은 보통 가운데) 충분히 큰 인물을 고른다.
+        H, W = img.shape[:2]
+        cx0, cy0 = W / 2.0, H / 2.0
+        diag = ((W ** 2 + H ** 2) ** 0.5) / 2.0
+        best_box, best_s = None, -1.0
+        for (x1, y1, x2, y2) in boxes:
+            bw, bh = (x2 - x1), (y2 - y1)
+            if bw <= 0 or bh <= 0:
+                continue
+            bcx, bcy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+            cent = 1.0 - (((bcx - cx0) ** 2 + (bcy - cy0) ** 2) ** 0.5) / diag
+            area = (bw * bh) / float(W * H)
+            s = 0.7 * cent + 0.3 * area   # 중앙 우선, 크기 보조
             if s > best_s:
-                best_s, best_c = s, c
-        print(f"[기준사진] 인물 {len(crops)}명 -> 인상착의 최고 일치 크롭 선택 (점수 {best_s:.2f})")
-        return best_c
+                best_s, best_box = s, (x1, y1, x2, y2)
+        if best_box is None:
+            return crops[0]
+        x1, y1, x2, y2 = best_box
+        print(f"[기준사진] 인물 {len(crops)}명 -> 가운데/큰 인물 선택 (점수 {best_s:.2f}, 텍스트 무관)")
+        return img[max(0, y1):y2, max(0, x1):x2]
     except Exception as e:
         print(f"[기준사진] 인물 선택 실패 -> 원본 사용: {e}")
         return img
